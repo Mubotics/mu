@@ -208,8 +208,8 @@ my_data MyData(int) = { data = 42 }
 ### Pattern Matching & Destructuring
 
 - Full `match` / `case` / `else` (exhaustive unless `else` present).
-- `if case Pattern = value:` (like Rust `if let`).
-- `let case Pattern = value else fallback:`.
+- `if case Pattern of x = value:` (like Rust `if let`).
+- `let case Pattern of x = value else: # fallback`.
 - Destructuring supports structs, tuples, variants, records, and wildcards (`_`).
 
 ### Memory Models & Pragmatism
