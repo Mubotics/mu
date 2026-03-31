@@ -100,8 +100,7 @@ with f = file.open("file1")?, g = file.open("file2")?:
     f.read()? |> g.write()?
 ```
 
-**end**
-- can make it easier to read by marking where multiple blocks end
+**end** (marks where multiple blocks end)
 
 ```mu
 try:
