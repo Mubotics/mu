@@ -203,13 +203,13 @@ my_data MyData(int) = { data = 42 }
 - `expr?` – propagate error (Rust/Swift `?` style).
 - Errors are typed sumtypes; the compiler unions all possible errors from `?` sites.
 - `try` / `except` can be expression or block and must unify return types (like `if`/`else`).
-- Pattern matching on errors works with `match`, `if case`, or `let case`.
+- Pattern matching on errors works with `match`, `if ... of`, or `let ... of`.
 
 ### Pattern Matching & Destructuring
 
 - Full `match` / `case` / `else` (exhaustive unless `else` present).
-- `if case Pattern of x = value:` (like Rust `if let`).
-- `let case Pattern of x = value else: # fallback`.
+- `if Pattern of x = value:` (like Rust `if let`).
+- `let Pattern of x = value else: # fallback`.
 - Destructuring supports structs, tuples, variants, records, and wildcards (`_`).
 
 ### Memory Models & Pragmatism
