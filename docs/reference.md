@@ -92,7 +92,6 @@ try:
     risky()?
 except e:
     print(e)
-    end
 ```
 
 **with** (resource management)
@@ -100,6 +99,20 @@ except e:
 ```mu
 with f = file.open("file1")?, g = file.open("file2")?:
     f.read()? |> g.write()?
+```
+
+**end**
+- can make it easier to read by marking where multiple blocks end
+
+```mu
+try:
+    if file1.endswith(".txt") and file2.endswith(".txt"):
+        with f = file.open(file1)?, g = file.open(file2)?:
+            f.read()? |> g.write()?
+    end # <-- ends both the `if` and `with` block
+    print("Success")
+except e:
+    print($"Error: {str(e)}")
 ```
 
 ### Variable Declarations
