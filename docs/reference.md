@@ -195,7 +195,7 @@ def comptime fun MyData(T type) -> type:
         data T
     return Self
 
-let my_data MyData(int) = { data = 42 }
+my_data MyData(int) = { data = 42 }
 ```
 
 ### Error Handling
