@@ -201,12 +201,12 @@ def MyEnum enum:
         val: int
 ```
 
-### Errors
+### Exceptions
 
-Errors are similar to enums but used for error handling. See "Error handling" down below for my details.
+Exceptions are similar to enums but used for error handling. See "Error Handling" down below for my details.
 
 ```mu
-def MyError error:
+def MyException except:
     case OutOfBounds
     case DivideByZero(int)
 ```
