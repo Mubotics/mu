@@ -4,38 +4,319 @@
 
 Mu is a general-purpose, multi-paradigm programming language with Python-like syntax and significant whitespace. It targets Python developers who need C-level performance without leaving the familiar syntax family. The language is expression-oriented where possible, supports gradual optimization through attributes, and provides explicit control over evaluation strategy, memory model, and error handling.
 
-### Lexical Conventions
+---
 
-- **Indentation**: Significant whitespace (4 spaces recommended). Blocks are opened with a colon `:` and closed implicitly by dedent (or explicitly with optional `end`).
-- **Inline vs Block Forms**:
-  - `then` ::= inline expression form.
-  - `:` ::= block form (statements end with newline or semicolon `;`).
-- **end keyword**:
+## Lexical Conventions
+
+- **Indentation**: Significant whitespace (4 spaces recommended). Blocks are opened with a colon `:` and closed implicitly by dedent, or explicitly with `end`.
+- **Inline vs block forms**:
+  - `then` — inline single-expression form.
+  - `:` — block form (statements end with newline or semicolon `;`).
+- **`end` keyword**:
   - Optional for readability in multi-line blocks.
-  - Required for one-line blocks that use semicolons: `if cond: stmt1; stmt2; end`.
-- **Comments**: `#` to end-of-line (Python style).
-- **String literals**: `"..."`, or interpolated `$"..."` (with `{expr}` inside).
-- **Pipe operator**: `|>` (left-to-right function composition).
+  - Required to close multiple nested blocks at once: `if cond: stmt1; stmt2; end`.
+- **Comments**: `#` to end-of-line.
+- **String literals**: `"..."` plain, or `$"..."` for interpolation with `{expr}` inside.
+- **Pipe operator**: `|>` for left-to-right function composition.
 
-### Expressions vs Statements
+---
 
-Almost everything is an expression. Block forms (`:`) may contain multiple statements; the last expression becomes the value. Inline forms (`then`) are always single expressions.
+## Expressions vs Statements
 
-### Control Flow & Branching Statements
+Almost everything is an expression. Block forms (`:`) may contain multiple statements; the last expression is the value. Inline forms (`then`) are always a single expression.
 
-All six branching constructs (`if`, `match`, `for`, `while`, `try`, `with`) follow the same pattern:
+---
+
+## Variable Declarations
+
+There are four declaration forms. Type annotations use `: type`; when omitted, the type is inferred from the value.
+
+| Form | Type | Value | Mutability |
+|---|---|---|---|
+| `name: type` | explicit | deferred | immutable |
+| `mu name: type` | explicit | deferred | mutable |
+| `name = value` | inferred | immediate | immutable* |
+| `mu name = value` | inferred | immediate | mutable |
+
+*`name = value` is a mutation instead of a new binding if `name` is a `mu` variable already in scope (see Scoping below).
+
+```mu
+# Compile-time constant — cannot be shadowed in any scope
+const Pi = 3.14159
+
+# Immutable with explicit type, value assigned later
+latebinding_num: int
+latebinding_num = 5
+
+# Immutable with explicit type and immediate value
+immutable_num: int = 4
+
+# Immutable with inferred type
+greeting = "hello"
+
+# Mutable with explicit type
+mu mutable_num: int = 6
+mutable_num = 7
+mutable_num = 8
+
+# Mutable with inferred type
+mu count = 0
+count = count + 1
+```
+
+`mu` variables are mutable in value but not in type — reassigning a different type is a compile error.
+
+### `const` vs Immutable Bindings
+
+`const` values are unshadowable: the same name resolves to the same value in every scope. Immutable bindings declared without `const` can be shadowed by a new binding of the same name in an inner scope.
+
+### Scoping and `inherit`
+
+Bare assignment (`name = value`) always creates a local binding unless `name` is a `mu` variable already in the current scope. To mutate a `mu` variable from an enclosing scope, declare it with `inherit`:
+
+```mu
+mu count = 0
+
+def increment():
+    inherit count       # explicitly captures the outer mu variable
+    count = count + 1
+
+increment()             # count is now 1
+```
+
+Without `inherit`, `count = count + 1` inside the function would create a new local binding and leave the outer `count` unchanged. Any function containing an `inherit` statement is immediately recognisable as one with side effects on external state.
+
+---
+
+## Functions (`def`)
+
+Functions are defined with `def`. The return type follows `->`.
+
+```mu
+def my_func(a: int, b: int) -> int:
+    return a + b
+```
+
+### Lazy / Curried Parameters (`param`)
+
+A function can declare lazy parameters using `param` in the body. `param` works like `yield` in reverse: instead of producing a value, it consumes the next argument and suspends until it arrives. A function with lazy parameters returns a new function with one fewer parameter each time it is partially applied.
+
+```mu
+def my_lazy_func int -> int -> int:
+    param a, b
+    return a + b
+
+my_lazy_func(1, 2)          # => 3  (called eagerly)
+my_lazy_func(1)(2)          # => 3  (called via currying)
+add_one = my_lazy_func(1)   # => function int -> int
+```
+
+The type signature `int -> int -> int` describes the curried form. Eager parameters (declared in the argument list) must appear before lazy ones. A zero-argument lazy function may be called without parentheses:
+
+```mu
+def my_getter_func int:     # takes no arguments, returns int
+    return mutable_num
+
+my_getter_func              # valid call
+my_getter_func()            # also valid
+```
+
+### Tuple Concatenation
+
+Adjacent argument lists are concatenated, so eager and curried calls are equivalent:
+
+```
+(1)(2)(3) == (1, 2, 3)
+my_func(1)(2) == my_func(1, 2)
+```
+
+### Anonymous Functions
+
+Anonymous functions use the same `def` syntax inside expressions:
+
+```mu
+double = def(x: int) -> int then x * 2
+```
+
+---
+
+## Attributes (`@`)
+
+Attributes annotate a definition with behavioural or optimisation hints. They are written with `@` above the definition or as a single attribute inline:
+
+```mu
+@pure
+def add(a: int, b: int) -> int:
+    return a + b
+
+@(safe, inline)
+def fast_add(a: int, b: int) -> int:
+    return a + b
+```
+
+**Available attributes** (non-exhaustive):
+
+- `inline` — force inlining.
+- `rec` — recursive function (required for self-reference in some contexts).
+- `pure` — no side effects; last expression is the return value.
+- `safe` — Rust-style ownership and borrow checking.
+- `count` — reference counting memory model.
+- `collect(GC)` — garbage collection; `GC` may be a reference to any collector.
+- `comptime` — executed at compile time (used for metaprogramming and type generation).
+- `override` — marks a method as intentionally overriding a parent definition.
+
+Conflicting attributes (e.g. `safe` + `collect`) are compile errors.
+
+---
+
+## Types
+
+### Structs
+
+Structs are plain data containers. They cannot extend other structs or classes.
+
+```mu
+def MyStruct struct:
+    x: int
+    y: int
+```
+
+Methods and trait implementations are added separately with `impl`:
+
+```mu
+impl MyStruct:
+    def init(x: int, y: int) -> Self:
+        return MyStruct { x=x, y=y }
+```
+
+### Enums
+
+Enums define a closed set of variants. Variants may carry data or an inline struct.
+
+```mu
+def MyEnum enum:
+    case First
+    case Second(int)
+    case Third struct:
+        val: int
+```
+
+### Errors
+
+Errors are similar to enums but used for error handling. See "Error handling" down below for my details.
+
+```mu
+def MyError error:
+    case OutOfBounds
+    case DivideByZero(int)
+```
+
+### Virtual Types (`virt`)
+
+A `virt` is an abstract interface — a named contract with no data. It is equivalent to a trait or interface in other languages.
+
+```mu
+def MyVirtual virt:
+    def speak(self) -> void
+```
+
+### Implementing Virtuals (`impl`)
+
+`impl Type(Virt):` follows "type extends type" order, mirroring Python's `class Name(Super)` pattern.
+
+```mu
+impl MyStruct(MyVirtual):
+    def speak(self):
+        print($"I am a MyStruct {{ x={self.x}, y={self.y} }}")
+
+impl MyEnum(MyVirtual):
+    def speak(self):
+        match self:
+            case First:
+                print("I am a MyEnum of First")
+            case Second(x):
+                print($"I am a MyEnum of Second({x})")
+            case Third { val }:
+                print($"I am a MyEnum of Third {{ val={val} }}")
+```
+
+### Classes
+
+A `class` is shorthand for a struct with bundled method definitions. Unlike structs, classes can inherit from other classes and implement virtuals.
+
+```mu
+class MyClass(MyVirtual):
+    val: int
+
+    def init() -> Self:
+        return MyClass { val = 0 }
+
+    def speak(self):
+        print($"I am a MyClass {{ val={self.val} }}")
+```
+
+### Inheritance and Visibility
+
+All members of a class are public by default. When subclassing, inherited members become private to the subclass unless explicitly redeclared with `inherit`. This encourages separating public and private data into distinct types rather than using access modifiers.
+
+```mu
+class MyOtherClass(MyClass):
+    inherit val     # redeclared — remains public in MyOtherClass
+    other: int
+
+    def init() -> Self:
+        return MyOtherClass {
+            val = 0,
+            other = 1,
+        }
+
+    @override
+    def speak(self):
+        print($"I am a MyOtherClass {{ val={self.val}, other={self.other} }}")
+```
+
+A subclass cannot accidentally expose or clash with a private inherited member because types only see members that have been explicitly declared within them. This mirrors the convention used for imports.
+
+---
+
+## Type Annotations
+
+- **Basic**: `name: type`
+- **Function (eager)**: `(type, type) -> type`
+- **Function (lazy/curried)**: `type -> type -> type`
+- **Result / error**: `type!` or `type!MyError`
+- **Inferred**: omit the annotation entirely
+
+### Comptime Generics
+
+Traditional generics are replaced by compile-time functions that produce types:
+
+```mu
+@comptime
+def MyData(T: type) -> type:
+    def Self struct:
+        data: T
+    return Self
+
+my_data: MyData(int) = { data = 42 }
+```
+
+---
+
+## Control Flow
+
+All six branching constructs (`if`, `match`, `for`, `while`, `try`, `with`) share the same block / inline pattern:
 
 ```mu
 # Block form
 keyword subject:
     body
-    ...
 
 # Inline expression form
 keyword subject then expr
 ```
 
-**if / else**
+### if / else
 
 ```mu
 if x > 0 then x else -x
@@ -46,46 +327,47 @@ else:
     print("non-positive")
 ```
 
-**match / case / else** (exhaustive by default)
+### match / case / else
+
+Exhaustive by default; `else` provides a fallback.
 
 ```mu
-match e:
-    case file.OpenError of { filename }:
-        print($"Error opening {filename}")
-    case file.ReadError of { filename }:
-        print($"Error reading {filename}")
-    else:
-        print("Unknown error")
+match self:
+    case First:
+        print("First")
+    case Second(x):
+        print($"Second({x})")
+    case Third { val }:
+        print($"Third {{ val={val} }}")
+
+# Inline form (no colon; line breaks ignored inside parentheses)
+(match e
+    case file.OpenError { filename } then $"Open error: {filename}"
+    else "Unknown error")
 ```
 
-Inline version:
+### for
 
 ```mu
-(match e                      # <-- no colon 
-    case pattern then value   # linebreaks ingored within parantheses
-    else fallback_value)
-```
+new_list = [for x in list then x * 2]
 
-**for** (comprehensions or loops)
-
-```mu
-for x in list then x * 2          # <-- expression
 for x in list:
     print(x)
 ```
 
-**while**
+### while
 
 ```mu
-while cond then do_something()
+new_list = [while cond then do_something()]
+
 while cond:
-    # ...
+    body
 ```
 
-**try / except**
+### try / except
 
 ```mu
-try divide(1, 0) except e then 0.0
+try divide(1, 0) except _ then 0.0
 
 try:
     risky()?
@@ -93,144 +375,68 @@ except e:
     print(e)
 ```
 
-**with** (resource management)
+### with
 
 ```mu
-with f = file.open("file1")?, g = file.open("file2")?:
+with f = file.open("a.txt")?, g = file.open("b.txt")?:
     f.read()? |> g.write()?
 ```
 
-**end** (marks where multiple blocks end)
+### Closing Multiple Blocks with `end`
 
 ```mu
 try:
     if file1.endswith(".txt") and file2.endswith(".txt"):
         with f = file.open(file1)?, g = file.open(file2)?:
             f.read()? |> g.write()?
-    end # <-- ends both the `if` and `with` block
+    end     # closes both `if` and `with`
     print("Success")
 except e:
     print($"Error: {str(e)}")
 ```
 
-### Variable Declarations
+---
 
-Go-style syntax (no colon):
+## Error Handling
 
-```mu
-x int = 42
-name str = "Mu"
-y = 43 # type inference
+- `expr?` — propagate an error upward (Rust/Swift style).
+- Errors are typed sum types; the compiler unions all possible error types from every `?` site in a function.
+- `try` / `except` can be an expression or a block and must unify return types (like `if` / `else`).
+- Pattern matching on errors works with `match`, `if Pattern of x = value:`, or `let Pattern of x = value else:`.
 
-# Multiple bindings (parentheses required for 2+)
-two_cubed = let x = 2 then x * x * x
-sum = let (x = 1, y = 2) then x + y
-```
+---
 
-### Function Declarations (`fun`)
+## Pattern Matching and Destructuring
 
-Two equivalent ways to declare parameters:
+- Full `match` / `case` / `else` (exhaustive unless `else` is present).
+- `if case Pattern(x) = value:` — like Rust's `if let`.
+- Destructuring supports structs, tuples, enum variants, and wildcards (`_`).
 
-**Eager style** (traditional, all parameters required up-front):
+---
 
-```mu
-fun add(a int, b int) -> int:
-    return a + b
-```
+## Memory Models
 
-**Lazy / curried style** (parameters consumed one-by-one):
+Mu is multi-paradigm: different functions, structs, or modules can use different memory strategies in the same program. The model is controlled per-definition via attributes. Boundary crossing between models follows FFI-like rules — automatic marshalling where possible, explicit escapes otherwise.
 
-```mu
-fun add int -> int -> int:
-    param a
-    param b
-    return a + b
-```
+---
 
-- `param name` binds the next argument and continues execution.
-- Eager parameters must appear before lazy ones in mixed signatures.
-- Both styles support the same call syntax thanks to **tuple concatenation**:
-  - `(1)(2)(3) == (1, 2, 3)`
-  - `add(1, 2) == add(1)(2)`
-- Partial application is automatic: calling with fewer arguments returns a new function.
-
-**Anonymous functions** use the same `fun` syntax inside expressions.
-
-### Attributes & Definitions (`def`)
-
-All top-level definitions are introduced with `def` followed by optional attributes, then the kind (`fun`, `struct`, `class`, `type`, etc.).
-
-```mu
-def fun add(a int, b int) -> int          # no attributes
-def safe fun add(a int, b int) -> int     # single attribute
-def (safe, pure, inline) fun add(a int, b int) -> int
-def (collect(GC)) struct Node             # custom GC
-```
-
-**Available attributes** (non-exhaustive):
-
-- `inline` - force inlining
-- `rec` - recurcive function
-- `pure` - no side effects, last expression is return value
-- `safe` - Rust-style ownership / borrow checker
-- `count` - reference counting
-- `collect(GC)` - garbage collection (GC can be a reference to any collector)
-- `comptime` - executed at compile time (used for metaprogramming and type generation)
-
-Conflicts (e.g. `safe` + `collect`) are compile errors.
-
-### Types
-
-- **Basic syntax**: `varname type` (space-separated, Go style).
-- **Function types**:
-  - Eager: `(type, type) -> type`
-  - Lazy/curried: `type -> type -> type`
-- **Result / error types**: `type!` or `type!MyError`
-- **Error sumtypes**: Automatically accumulated from every `?` in a function or `try` block.
-- **Comptime type generation** (replaces traditional generics):
-
-```mu
-def comptime fun MyData(T type) -> type:
-    struct Self:
-        data T
-    return Self
-
-my_data MyData(int) = { data = 42 }
-```
-
-### Error Handling
-
-- `expr?` – propagate error (Rust/Swift `?` style).
-- Errors are typed sumtypes; the compiler unions all possible errors from `?` sites.
-- `try` / `except` can be expression or block and must unify return types (like `if`/`else`).
-- Pattern matching on errors works with `match`, `if ... of`, or `let ... of`.
-
-### Pattern Matching & Destructuring
-
-- Full `match` / `case` / `else` (exhaustive unless `else` present).
-- `if Pattern of x = value:` (like Rust `if let`).
-- `let Pattern of x = value else: # fallback`.
-- Destructuring supports structs, tuples, variants, records, and wildcards (`_`).
-
-### Memory Models & Pragmatism
-
-Mu is **multi-pragmatic**: different functions, structs, or modules can use different memory strategies in the same program. Attributes control the model per definition. Boundary crossing between models follows FFI-like rules (automatic marshaling where possible, explicit escapes when needed).
-
-### Additional Features
+## Additional Features
 
 - **Pipelines**: `f.read()? |> g.write()?`
-- **Interpolated strings**: `$"Error: {filename}"`
-- **Comptime functions**: Full Mu language available at compile time for type construction, code generation, etc.
-- **Tuple concatenation rule**: Powers clean currying and partial application.
+- **Interpolated strings**: `$"value is {expr}"`
+- **Comptime functions**: the full Mu language is available at compile time for type construction, code generation, and metaprogramming.
+- **Tuple concatenation**: powers clean currying and partial application — `f(1)(2) == f(1, 2)`.
 
-### Summary of Design Philosophy
+---
 
-- **Readability first** – Python-like syntax with significant whitespace.
-- **Performance on demand** – start with GC/reference counting, add `safe`/`inline`/`pure` where needed.
-- **Explicit but ergonomic** – `?` for errors, attributes for memory, `then` vs `:` for evaluation style.
-- **Unified concepts** – tuple concatenation, eager/lazy via type signature, comptime replacing generics.
-- **Python-developer friendly** – gradual typing, familiar control flow, zero-FFI path from script to high-performance code.
+## Design Philosophy
 
-This document captures the current state of the Mu design. The language is still evolving; future revisions will add modules, async/concurrency, operator overloading, virtual classes, and full Python interop.
+- **Readability first** — Python-like syntax with significant whitespace.
+- **Performance on demand** — start with GC or reference counting; add `safe`, `inline`, or `pure` where needed.
+- **Explicit but ergonomic** — `?` for errors, attributes for memory models, `then` vs `:` for evaluation style.
+- **Unified concepts** — `inherit` for both scope capture and member visibility; `def` for all top-level definitions; tuple concatenation powering currying.
+- **Python-developer friendly** — gradual typing, familiar control flow, no second language or FFI layer required.
 
-Mu aims to be the language you wish Python compiled to—familiar syntax, C-level performance when you need it, and no second language or FFI layer required.
+---
+
+*This document captures the current state of the Mu design. The language is still evolving; future revisions will cover modules, async/concurrency, operator overloading, and full Python interop.*
