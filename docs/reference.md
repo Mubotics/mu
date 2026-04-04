@@ -358,8 +358,6 @@ for x in list:
 ### while
 
 ```mu
-new_list = [while cond then do_something()]
-
 while cond:
     body
 ```
